@@ -33,7 +33,7 @@
 <br/>
 
 <div align="center">
-  <em>Dark glassmorphic UI • animated robot onboarding • AI-assisted resume screening • real-time placement analytics</em>
+  <em>Dark glassmorphic UI · animated robot onboarding · AI-assisted resume screening · real-time placement analytics</em>
 </div>
 
 <br/>
@@ -201,7 +201,7 @@ The interface uses a custom dark **glassmorphism design system** — animated gr
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │                         Browser (Client)                       │
-│   Jinja2 templates • Bootstrap 5 • Chart.js • Vanilla JS       │
+│   Jinja2 templates · Bootstrap 5 · Chart.js · Vanilla JS       │
 └───────────────────────────────┬────────────────────────────────┘
                                  │ HTTP (session cookies)
 ┌───────────────────────────────▼────────────────────────────────┐
@@ -215,8 +215,8 @@ The interface uses a custom dark **glassmorphism design system** — animated gr
                                  │ SQLAlchemy ORM
 ┌───────────────────────────────▼────────────────────────────────┐
 │                  SQLite (dev) / PostgreSQL (prod)                │
-│   users • student_profiles • company_profiles • job_posts        │
-│   job_applications • placement_records                           │
+│   users · student_profiles · company_profiles · job_posts        │
+│   job_applications · placement_records                           │
 └────────────────────────────────────────────────────────────────┘
 ```
 
