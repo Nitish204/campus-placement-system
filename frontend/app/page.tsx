@@ -1,11 +1,12 @@
 "use client";
 import Link from "next/link";
 import { motion } from "framer-motion";
+import { LoadingIntro } from "@/components/LoadingIntro";
 import { GlassPanel, Button } from "@/components/ui";
 
 const rise = {
-  hidden: { opacity: 0, y: 16 },
-  show: (i: number) => ({ opacity: 1, y: 0, transition: { delay: i * 0.1, duration: 0.6, ease: [0.16, 1, 0.3, 1] } }),
+  hidden: { opacity: 0, y: 32 },
+  show: (i: number) => ({ opacity: 1, y: 0, transition: { delay: 0.9 + i * 0.15, duration: 0.9, ease: [0.16, 1, 0.3, 1] } }),
 };
 
 const features = [
