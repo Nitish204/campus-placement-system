@@ -59,7 +59,7 @@ export default function ViewApplicationsPage() {
 
       <div className="space-y-3">
         {data.applications.map((a: any, i: number) => (
-          <motion.div key={a.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0, transition: { delay: i * 0.03 } }}>
+          <motion.div key={a.id} initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0, transition: { delay: i * 0.08, duration: 0.5, ease: [0.16, 1, 0.3, 1] } }}>
             <GlassPanel className="p-5 flex items-center justify-between">
               <div>
                 <p className="font-medium text-ink">{a.student_name}</p>
