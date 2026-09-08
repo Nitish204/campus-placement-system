@@ -120,7 +120,7 @@ export default function StudentDashboard() {
             <div className="space-y-3">
               <AnimatePresence>
                 {data.active_jobs.map((job: any, i: number) => (
-                  <motion.div key={job.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0, transition: { delay: i * 0.03 } }}>
+                  <motion.div key={job.id} initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0, transition: { delay: i * 0.08, duration: 0.5, ease: [0.16, 1, 0.3, 1] } }}>
                     <GlassPanel className="p-5">
                       <div className="flex items-start justify-between">
                         <div>
