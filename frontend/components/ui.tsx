@@ -4,16 +4,18 @@ export function GlassPanel({
   children,
   className = "",
   glow = false,
+  hoverable = false,
 }: {
   children: React.ReactNode;
   className?: string;
   glow?: boolean;
+  hoverable?: boolean;
 }) {
   return (
     <div
-      className={`bg-white/[0.04] backdrop-blur-xl border border-white/10 rounded-glass shadow-glass ${
+      className={`bg-white/[0.04] backdrop-blur-xl border border-white/10 rounded-glass shadow-glass transition-all duration-200 ease-out ${
         glow ? "shadow-glow-violet" : ""
-      } ${className}`}
+      } ${hoverable ? "hover:-translate-y-[4px] hover:scale-[1.015] hover:border-white/20 hover:shadow-glow-violet cursor-pointer" : ""} ${className}`}
     >
       {children}
     </div>
@@ -27,11 +29,11 @@ export function Button({
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "danger" }) {
   const base =
-    "font-display font-semibold text-[14px] px-5 py-2.5 rounded-xl transition-all duration-200 disabled:opacity-40 disabled:pointer-events-none";
+    "font-display font-semibold text-[14px] px-5 py-2.5 rounded-xl transition-all duration-200 ease-out disabled:opacity-40 disabled:pointer-events-none active:scale-[0.96]";
   const styles = {
-    primary: "bg-accent-gradient text-white shadow-glow-violet hover:brightness-110 hover:-translate-y-[1px]",
-    secondary: "bg-white/[0.06] border border-white/10 text-ink hover:bg-white/[0.1] hover:-translate-y-[1px]",
-    danger: "bg-rose/10 border border-rose/30 text-rose hover:bg-rose/20",
+    primary: "bg-accent-gradient text-white shadow-glow-violet hover:brightness-110 hover:-translate-y-[3px] hover:scale-[1.03]",
+    secondary: "bg-white/[0.06] border border-white/10 text-ink hover:bg-white/[0.1] hover:-translate-y-[3px] hover:scale-[1.03]",
+    danger: "bg-rose/10 border border-rose/30 text-rose hover:bg-rose/20 hover:-translate-y-[3px] hover:scale-[1.03]",
   };
   return (
     <button className={`${base} ${styles[variant]} ${className}`} {...props}>
