@@ -3,6 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
+import { LoadingIntro } from "@/components/LoadingIntro";
 import { GlassPanel, Button, Input } from "@/components/ui";
 import { api } from "@/lib/api";
 import { storeAuthAndRedirect } from "@/lib/auth";
@@ -29,14 +30,15 @@ export default function LoginPage() {
 
   return (
     <main className="min-h-screen flex items-center justify-center px-6 relative overflow-hidden">
+      <LoadingIntro />
       {/* Ambient glow orbs - the "redefined" visual signature for this page */}
       <div className="absolute top-[-10%] left-[10%] w-72 h-72 bg-violet/20 rounded-full blur-[100px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[10%] w-72 h-72 bg-cyan/15 rounded-full blur-[100px] pointer-events-none" />
 
       <motion.div
-        initial={{ opacity: 0, y: 20, scale: 0.98 }}
+        initial={{ opacity: 0, y: 32, scale: 0.96 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+        transition={{ delay: 0.85, duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
         className="w-full max-w-md relative z-10"
       >
         <Link href="/" className="flex items-center gap-2.5 justify-center mb-8">
