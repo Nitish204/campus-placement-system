@@ -18,6 +18,7 @@ const features = [
 export default function LandingPage() {
   return (
     <main className="min-h-screen">
+      <LoadingIntro />
       <header className="flex items-center justify-between px-6 md:px-10 py-6 max-w-6xl mx-auto">
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-xl bg-accent-gradient shadow-glow-violet flex items-center justify-center font-display font-bold text-white">C</div>
