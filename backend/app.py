@@ -337,7 +337,7 @@ def calculate_screening_score(resume_text, job_skills, job_description=""):
         job_text = (job_description or "") + " " + job_skills
         vectorizer = TfidfVectorizer(stop_words="english")
         tfidf = vectorizer.fit_transform([resume_text, job_text])
-        similarity_score = cosine_similarity(tfidf[0:1], tfidf[1:2])[0][0] * 100
+        similarity_score = float(cosine_similarity(tfidf[0:1], tfidf[1:2])[0][0]) * 100
         final_score = (coverage_score * 0.6) + (similarity_score * 0.4)
         return round(min(final_score, 100.0), 1)
     except ImportError:
