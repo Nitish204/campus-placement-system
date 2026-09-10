@@ -8,7 +8,7 @@ import { GlassPanel, Button, Badge } from "@/components/ui";
 
 export default function NotificationsPage() {
   const router = useRouter();
-  const { token, user, loading: authLoading, logout } = useAuth();
+  const { token, user, logout } = useAuth();
   const [notifs, setNotifs] = useState<any[]>([]);
 
   async function load() {
@@ -31,10 +31,9 @@ export default function NotificationsPage() {
     await load();
   }
 
-  if (authLoading || !user) return <div className="min-h-screen flex items-center justify-center text-muted font-mono text-sm">loading…</div>;
 
   return (
-    <DashboardShell role={user.role} email={user.email} onLogout={logout}>
+    <DashboardShell role={user?.role || ""} email={user?.email || ""} onLogout={logout}>
       <div className="flex items-center justify-between mb-6">
         <h1 className="font-display font-bold text-xl text-ink">Notifications</h1>
         <Button variant="secondary" onClick={markAllRead} className="!px-4 !py-2 text-xs">Mark all read</Button>
