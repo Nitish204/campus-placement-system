@@ -1,15 +1,14 @@
 import type { Metadata } from "next";
 import "./globals.css";
 
-// Uses next/font/google for Space Grotesk + Inter in a real environment
-// (self-hosts at build time). Commented out here since this sandbox has
-// no network access to fonts.googleapis.com at build time - uncomment on
-// your machine:
+// Outfit (display) + Plus Jakarta Sans (body) via next/font/google in a
+// real environment. Commented out here since this sandbox has no network
+// access to fonts.googleapis.com at build time - uncomment on your machine:
 //
-//   import { Space_Grotesk, Inter } from "next/font/google";
-//   const grotesk = Space_Grotesk({ subsets: ["latin"], variable: "--font-grotesk", weight: ["500","700"] });
-//   const inter = Inter({ subsets: ["latin"], variable: "--font-inter", weight: ["400","500","600"] });
-//   then add `${grotesk.variable} ${inter.variable}` to <html> className below.
+//   import { Outfit, Plus_Jakarta_Sans } from "next/font/google";
+//   const outfit = Outfit({ subsets: ["latin"], variable: "--font-display", weight: ["500","700"] });
+//   const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-body", weight: ["400","500","600"] });
+//   then add `${outfit.variable} ${jakarta.variable}` to <html> className below.
 
 export const metadata: Metadata = {
   title: "Campus Place — Where Talent Meets the Right Opportunity",
