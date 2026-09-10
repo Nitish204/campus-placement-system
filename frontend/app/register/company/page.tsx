@@ -3,6 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
+import { LoadingIntro } from "@/components/LoadingIntro";
 import { GlassPanel, Button, Input, Textarea } from "@/components/ui";
 import { api } from "@/lib/api";
 import { storeAuthAndRedirect } from "@/lib/auth";
@@ -33,7 +34,8 @@ export default function RegisterCompanyPage() {
 
   return (
     <main className="min-h-screen flex items-center justify-center px-6 py-16">
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="w-full max-w-lg">
+      <LoadingIntro />
+      <motion.div initial={{ opacity: 0, y: 32 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.85, duration: 0.7, ease: [0.16, 1, 0.3, 1] }} className="w-full max-w-lg">
         <Link href="/" className="flex items-center gap-2.5 justify-center mb-8">
           <div className="w-9 h-9 rounded-xl bg-accent-gradient shadow-glow-violet flex items-center justify-center font-display font-bold text-white">C</div>
           <span className="font-display font-bold text-lg text-ink">Campus Place</span>
@@ -63,7 +65,7 @@ export default function RegisterCompanyPage() {
             </Button>
           </form>
 
-          <div className="mt-7 pt-6 border-t border-white/10 text-center text-sm text-muted">
+          <div className="mt-7 pt-6 border-t border-ink/[0.08] text-center text-sm text-muted">
             Already registered? <Link href="/login" className="text-violet font-medium hover:underline">Log in</Link>
           </div>
         </GlassPanel>
