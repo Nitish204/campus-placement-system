@@ -9,7 +9,7 @@ import { GlassPanel, Button, Input, Textarea } from "@/components/ui";
 
 export default function PostJobPage() {
   const router = useRouter();
-  const { token, user, loading: authLoading, logout } = useAuth("company");
+  const { token, user, logout } = useAuth("company");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -33,10 +33,9 @@ export default function PostJobPage() {
     }
   }
 
-  if (authLoading) return <div className="min-h-screen flex items-center justify-center text-muted font-mono text-sm">loading…</div>;
 
   return (
-    <DashboardShell role="company" email={user!.email} onLogout={logout}>
+    <DashboardShell role="company" email={user?.email || ""} onLogout={logout}>
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="max-w-xl">
         <GlassPanel className="p-8" glow>
           <h1 className="font-display font-bold text-xl text-ink mb-6">Post a new job</h1>
