@@ -5,9 +5,10 @@ import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { DashboardShell } from "@/components/DashboardShell";
 import { GlassPanel, Button, Badge, StatCard, statusTone } from "@/components/ui";
+import { SkeletonStatRow, SkeletonList } from "@/components/Skeleton";
 
 export default function StudentDashboard() {
-  const { token, user, loading: authLoading, logout } = useAuth("student");
+  const { token, user, logout } = useAuth("student");
   const [data, setData] = useState<any>(null);
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -54,12 +55,12 @@ export default function StudentDashboard() {
     setBusy(null);
   }
 
-  if (authLoading || !data) {
-    return <div className="min-h-screen flex items-center justify-center text-muted font-mono text-sm">loading…</div>;
-  }
-
   return (
-    <DashboardShell role="student" email={user!.email} onLogout={logout}>
+    <DashboardShell role="student" email={user?.email || ""} onLogout={logout}>
+      {!data ? (
+        <SkeletonStatRow count={3} />
+      ) : (
+        <>
       <div className="grid md:grid-cols-3 gap-4 mb-8">
         <StatCard label="Applications" value={data.stats.total_applications} tone="violet" />
         <StatCard label="Shortlisted" value={data.stats.shortlisted} tone="cyan" />
@@ -72,7 +73,7 @@ export default function StudentDashboard() {
             <h3 className="font-display font-semibold text-ink">{data.student.full_name}</h3>
             <p className="text-sm text-muted">{data.student.branch} · CGPA {data.student.cgpa}</p>
             <p className="text-xs text-muted mt-1">{data.student.skills}</p>
-            <div className="mt-4 pt-4 border-t border-white/10">
+            <div className="mt-4 pt-4 border-t border-ink/[0.08]">
               <p className="text-sm font-medium mb-2 text-ink">
                 Resume {data.student.has_resume ? <Badge tone="emerald">Uploaded</Badge> : <Badge tone="amber">Missing</Badge>}
               </p>
@@ -146,6 +147,8 @@ export default function StudentDashboard() {
           </div>
         </div>
       </div>
+      </>
+      )}
     </DashboardShell>
   );
 }
