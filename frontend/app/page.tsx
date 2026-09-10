@@ -32,14 +32,14 @@ export default function LandingPage() {
 
       <section className="max-w-4xl mx-auto px-6 pt-16 pb-20 text-center">
         <motion.div variants={rise} initial="hidden" animate="show" custom={0} className="inline-flex">
-          <span className="text-xs font-mono border border-white/10 bg-white/5 rounded-full px-4 py-1.5 text-cyan">
+          <span className="text-xs font-mono border border-ink/[0.08] bg-white/5 rounded-full px-4 py-1.5 text-cyan">
             ✨ PLACEMENT SEASON, SIMPLIFIED
           </span>
         </motion.div>
 
         <motion.h1
           variants={rise} initial="hidden" animate="show" custom={1}
-          className="font-display font-bold text-[40px] md:text-[64px] leading-[1.05] tracking-tight mt-6 bg-clip-text text-transparent bg-gradient-to-br from-white via-white to-violet"
+          className="font-display font-bold text-[40px] md:text-[64px] leading-[1.05] tracking-tight mt-6 bg-clip-text text-transparent bg-gradient-to-br from-ink via-ink to-violet"
         >
           Where Talent Meets<br />the Right Opportunity
         </motion.h1>
