@@ -6,11 +6,12 @@ import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { DashboardShell } from "@/components/DashboardShell";
 import { GlassPanel, Button, Badge, statusTone } from "@/components/ui";
+import { SkeletonList } from "@/components/Skeleton";
 
 export default function ViewApplicationsPage() {
   const params = useParams();
   const jobId = Number(params.jobId);
-  const { token, user, loading: authLoading, logout } = useAuth("company");
+  const { token, user, logout } = useAuth("company");
   const [data, setData] = useState<any>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -43,10 +44,12 @@ export default function ViewApplicationsPage() {
     }
   }
 
-  if (authLoading || !data) return <div className="min-h-screen flex items-center justify-center text-muted font-mono text-sm">loading…</div>;
-
   return (
-    <DashboardShell role="company" email={user!.email} onLogout={logout}>
+    <DashboardShell role="company" email={user?.email || ""} onLogout={logout}>
+      {!data ? (
+        <SkeletonList count={4} />
+      ) : (
+      <>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="font-display font-bold text-xl text-ink">{data.job.title}</h1>
@@ -83,6 +86,8 @@ export default function ViewApplicationsPage() {
         ))}
         {data.applications.length === 0 && <p className="text-sm text-muted">No applications yet for this job.</p>}
       </div>
+      </>
+      )}
     </DashboardShell>
   );
 }
