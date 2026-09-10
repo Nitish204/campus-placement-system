@@ -13,9 +13,9 @@ export function GlassPanel({
 }) {
   return (
     <div
-      className={`bg-white/[0.04] backdrop-blur-xl border border-white/10 rounded-glass shadow-glass transition-all duration-200 ease-out ${
+      className={`bg-white/70 backdrop-blur-xl border border-ink/[0.08] rounded-glass shadow-glass transition-all duration-200 ease-out ${
         glow ? "shadow-glow-violet" : ""
-      } ${hoverable ? "hover:-translate-y-[4px] hover:scale-[1.015] hover:border-white/20 hover:shadow-glow-violet cursor-pointer" : ""} ${className}`}
+      } ${hoverable ? "hover:-translate-y-[4px] hover:scale-[1.015] hover:border-violet/25 hover:shadow-glow-violet cursor-pointer" : ""} ${className}`}
     >
       {children}
     </div>
@@ -28,12 +28,16 @@ export function Button({
   className = "",
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "danger" }) {
+  // Unique interaction, not copied from the translate-lift pattern used
+  // elsewhere: a two-tone gradient that's compressed into a 200%-wide
+  // background, sitting off to one side at rest and sweeping into view
+  // on hover via background-position - a "reveal" rather than a "lift".
   const base =
-    "font-display font-semibold text-[14px] px-5 py-2.5 rounded-xl transition-all duration-200 ease-out disabled:opacity-40 disabled:pointer-events-none active:scale-[0.96]";
+    "relative font-display font-semibold text-[0.95rem] px-6 py-3 rounded-full transition-all duration-300 ease-out disabled:opacity-40 disabled:pointer-events-none active:scale-[0.96] bg-[length:200%_100%] bg-left hover:bg-right";
   const styles = {
-    primary: "bg-accent-gradient text-white shadow-glow-violet hover:brightness-110 hover:-translate-y-[3px] hover:scale-[1.03]",
-    secondary: "bg-white/[0.06] border border-white/10 text-ink hover:bg-white/[0.1] hover:-translate-y-[3px] hover:scale-[1.03]",
-    danger: "bg-rose/10 border border-rose/30 text-rose hover:bg-rose/20 hover:-translate-y-[3px] hover:scale-[1.03]",
+    primary: "text-white shadow-glow-violet bg-gradient-to-r from-violet via-violet to-coral",
+    secondary: "text-ink border border-ink/15 bg-gradient-to-r from-white via-white to-violet/10 hover:text-violet",
+    danger: "text-rose border border-rose/25 bg-gradient-to-r from-rose/5 via-rose/5 to-rose/15",
   };
   return (
     <button className={`${base} ${styles[variant]} ${className}`} {...props}>
@@ -49,9 +53,9 @@ export function Input({
 }: InputHTMLAttributes<HTMLInputElement> & { label?: string }) {
   return (
     <label className="block">
-      {label && <span className="block text-sm text-muted mb-1.5">{label}</span>}
+      {label && <span className="block text-sm text-muted mb-1.5 font-medium">{label}</span>}
       <input
-        className={`w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-ink placeholder:text-muted/60 outline-none focus:border-violet/50 focus:bg-white/[0.06] transition-colors ${className}`}
+        className={`w-full bg-white/60 border border-ink/10 rounded-xl px-4 py-2.5 text-ink placeholder:text-muted/50 outline-none focus:border-violet/40 focus:bg-white transition-colors ${className}`}
         {...props}
       />
     </label>
@@ -65,9 +69,9 @@ export function Textarea({
 }: TextareaHTMLAttributes<HTMLTextAreaElement> & { label?: string }) {
   return (
     <label className="block">
-      {label && <span className="block text-sm text-muted mb-1.5">{label}</span>}
+      {label && <span className="block text-sm text-muted mb-1.5 font-medium">{label}</span>}
       <textarea
-        className={`w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-ink placeholder:text-muted/60 outline-none focus:border-violet/50 focus:bg-white/[0.06] transition-colors resize-y ${className}`}
+        className={`w-full bg-white/60 border border-ink/10 rounded-xl px-4 py-2.5 text-ink placeholder:text-muted/50 outline-none focus:border-violet/40 focus:bg-white transition-colors resize-y ${className}`}
         {...props}
       />
     </label>
@@ -82,9 +86,9 @@ export function Select({
 }: React.SelectHTMLAttributes<HTMLSelectElement> & { label?: string }) {
   return (
     <label className="block">
-      {label && <span className="block text-sm text-muted mb-1.5">{label}</span>}
+      {label && <span className="block text-sm text-muted mb-1.5 font-medium">{label}</span>}
       <select
-        className={`w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-ink outline-none focus:border-violet/50 transition-colors ${className}`}
+        className={`w-full bg-white/60 border border-ink/10 rounded-xl px-4 py-2.5 text-ink outline-none focus:border-violet/40 transition-colors ${className}`}
         {...props}
       >
         {children}
@@ -103,12 +107,12 @@ export function Badge({
   className?: string;
 }) {
   const tones: Record<string, string> = {
-    violet: "bg-violet/15 text-violet border-violet/30",
-    emerald: "bg-emerald/15 text-emerald border-emerald/30",
-    amber: "bg-amber/15 text-amber border-amber/30",
-    rose: "bg-rose/15 text-rose border-rose/30",
-    cyan: "bg-cyan/15 text-cyan border-cyan/30",
-    muted: "bg-white/5 text-muted border-white/10",
+    violet: "bg-violet/10 text-violet border-violet/25",
+    emerald: "bg-emerald/10 text-emerald border-emerald/25",
+    amber: "bg-amber/10 text-amber border-amber/25",
+    rose: "bg-rose/10 text-rose border-rose/25",
+    cyan: "bg-cyan/10 text-cyan border-cyan/25",
+    muted: "bg-ink/5 text-muted border-ink/10",
   };
   return (
     <span className={`inline-flex items-center gap-1.5 text-xs font-medium border rounded-full px-3 py-1 ${tones[tone]} ${className}`}>
@@ -118,12 +122,12 @@ export function Badge({
 }
 
 export function StatCard({ label, value, tone = "violet" }: { label: string; value: string | number; tone?: "violet" | "cyan" | "emerald" | "amber" }) {
-  const glow: Record<string, string> = {
+  const colors: Record<string, string> = {
     violet: "text-violet", cyan: "text-cyan", emerald: "text-emerald", amber: "text-amber",
   };
   return (
     <GlassPanel className="p-5">
-      <p className={`font-display font-bold text-3xl ${glow[tone]}`}>{value}</p>
+      <p className={`font-display font-bold text-3xl ${colors[tone]}`}>{value}</p>
       <p className="text-sm text-muted mt-1">{label}</p>
     </GlassPanel>
   );
