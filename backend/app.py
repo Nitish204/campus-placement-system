@@ -571,6 +571,28 @@ def student_dashboard():
     })
 
 
+def verify_file_signature(file_bytes: bytes, ext: str) -> bool:
+    """Checks the file's actual bytes match its claimed extension,
+    instead of trusting the filename alone - a renamed executable with a
+    .pdf extension would pass the old extension-only check but fails
+    here. Deliberately dependency-free (no python-magic/libmagic, which
+    needs a system library not guaranteed present in Render's build
+    image) - just the real, well-known magic bytes for PDF, and a
+    printable-character heuristic for plain text."""
+    if ext == "pdf":
+        return file_bytes.startswith(b"%PDF-")
+    if ext == "txt":
+        try:
+            sample = file_bytes[:2048].decode("utf-8")
+        except UnicodeDecodeError:
+            return False
+        if not sample:
+            return True
+        printable_ratio = sum(1 for c in sample if c.isprintable() or c.isspace()) / len(sample)
+        return printable_ratio > 0.95
+    return False
+
+
 @app.route("/api/student/upload_resume", methods=["POST"])
 @role_required("student")
 def upload_resume():
@@ -583,6 +605,11 @@ def upload_resume():
     ext = file.filename.rsplit(".", 1)[1].lower() if "." in file.filename else ""
     if ext not in allowed_ext:
         return jsonify({"error": "Only PDF or TXT resumes are supported."}), 400
+
+    file_bytes = file.read()
+    file.seek(0)
+    if not verify_file_signature(file_bytes, ext):
+        return jsonify({"error": f"This file doesn't look like a real .{ext} file. Please check the file and try again."}), 400
 
     try:
         os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
