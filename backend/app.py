@@ -24,6 +24,7 @@
 #      cleanly returns 401 instead of crashing.
 import os
 import uuid
+import secrets
 import logging
 from datetime import datetime, timedelta
 from functools import wraps
@@ -35,6 +36,8 @@ from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from sqlalchemy import func, desc, case
+from pydantic import BaseModel, EmailStr, Field, ValidationError
+from typing import Optional, Literal
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -198,14 +201,35 @@ def serialize_company(c: CompanyProfile):
     }
 
 
-def serialize_job(j: JobPost, include_company=True):
+def get_application_counts(job_ids):
+    """Batch-fetches application counts for a list of job IDs in ONE query
+    (GROUP BY), instead of the N+1 pattern where accessing j.applications
+    on each job in a loop triggers a separate lazy-loaded query per job.
+    Invisible with 6 demo jobs; with hundreds of jobs this is the
+    difference between 1 query and hundreds on every list view."""
+    if not job_ids:
+        return {}
+    rows = (
+        db.session.query(JobApplication.job_id, func.count(JobApplication.id))
+        .filter(JobApplication.job_id.in_(job_ids))
+        .group_by(JobApplication.job_id)
+        .all()
+    )
+    return {job_id: count for job_id, count in rows}
+
+
+def serialize_job(j: JobPost, include_company=True, application_count=None):
     d = {
         "id": j.id, "title": j.title, "description": j.description,
         "required_skills": j.required_skills, "location": j.location,
         "salary_range": j.salary_range,
         "last_date": j.last_date.isoformat() if j.last_date else None,
         "created_at": j.created_at.isoformat() if j.created_at else None,
-        "is_active": j.is_active, "application_count": len(j.applications),
+        "is_active": j.is_active,
+        # Use the pre-fetched batch count when the caller provides one
+        # (list views); fall back to the lazy relationship only for
+        # single-job calls, where one extra query is a non-issue.
+        "application_count": application_count if application_count is not None else len(j.applications),
     }
     if include_company and j.company:
         d["company_name"] = j.company.company_name
@@ -337,6 +361,17 @@ def calculate_screening_score(resume_text, job_skills, job_description=""):
         job_text = (job_description or "") + " " + job_skills
         vectorizer = TfidfVectorizer(stop_words="english")
         tfidf = vectorizer.fit_transform([resume_text, job_text])
+        # cosine_similarity() returns numpy.float64, not a native Python
+        # float - every downstream arithmetic op stays numpy-typed, and
+        # round() does NOT convert it back. SQLite silently accepts
+        # numpy.float64 (why this passed local testing), but psycopg2 has
+        # no adapter for it and falls back to repr(), producing the
+        # literal string "np.float64(45.7)" - which Postgres then tries
+        # to parse as a schema reference, causing:
+        #   psycopg2.errors.InvalidSchemaName: schema "np" does not exist
+        # float(...) here forces a real Python float before it ever
+        # reaches the database, at the one place this value originates,
+        # instead of patching every call site that stores a score.
         similarity_score = float(cosine_similarity(tfidf[0:1], tfidf[1:2])[0][0]) * 100
         final_score = (coverage_score * 0.6) + (similarity_score * 0.4)
         return round(min(final_score, 100.0), 1)
@@ -349,32 +384,96 @@ def notify(user_id, message, link=None):
     db.session.add(n)
 
 
+# ------------------------- Request validation schemas (Pydantic) -------------------------
+# Using Pydantic rather than hand-rolled if/else checks: it's the
+# established library for this, gives us type coercion, clear error
+# messages, and constraints (min/max length, ranges, email format) in a
+# few lines instead of dozens of manual checks scattered per-route.
+
+class RegisterStudentSchema(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+    full_name: str = Field(min_length=1, max_length=100)
+    roll_number: Optional[str] = Field(default=None, max_length=50)
+    branch: Optional[str] = Field(default=None, max_length=50)
+    cgpa: Optional[float] = Field(default=None, ge=0, le=10)
+    passing_year: Optional[int] = Field(default=None, ge=2000, le=2100)
+    phone: Optional[str] = Field(default=None, max_length=15)
+    skills: Optional[str] = Field(default=None, max_length=1000)
+
+
+class RegisterCompanySchema(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+    company_name: str = Field(min_length=1, max_length=100)
+    industry: Optional[str] = Field(default=None, max_length=50)
+    description: Optional[str] = Field(default=None, max_length=2000)
+    website: Optional[str] = Field(default=None, max_length=200)
+    location: Optional[str] = Field(default=None, max_length=100)
+
+
+class LoginSchema(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1)
+
+
+class PostJobSchema(BaseModel):
+    title: str = Field(min_length=1, max_length=100)
+    description: str = Field(min_length=1, max_length=5000)
+    required_skills: Optional[str] = Field(default=None, max_length=500)
+    location: Optional[str] = Field(default=None, max_length=100)
+    salary_range: Optional[str] = Field(default=None, max_length=50)
+    last_date: Optional[str] = None  # validated as a real date separately below
+
+
+class UpdateApplicationStatusSchema(BaseModel):
+    status: Literal["Shortlisted", "Rejected", "Placed"]
+    remarks: Optional[str] = Field(default=None, max_length=1000)
+
+
+def validate_json(schema_cls):
+    """Parses the request body and validates it against a Pydantic schema.
+    Returns (validated_dict, None) on success, or (None, error_response)
+    on failure - error_response is a ready-to-return Flask response so
+    every route's error handling looks the same: `if err: return err`."""
+    try:
+        data = request.get_json(force=True) or {}
+    except Exception:
+        return None, (jsonify({"error": "Request body must be valid JSON."}), 400)
+
+    try:
+        validated = schema_cls(**data)
+        return validated.model_dump(), None
+    except ValidationError as e:
+        # e.errors() gives structured, field-level messages (Pydantic's
+        # own formatting) - surfaced directly rather than a generic
+        # "invalid input" so the frontend/user knows exactly what's wrong.
+        messages = [f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}" for err in e.errors()]
+        return None, (jsonify({"error": "Invalid input.", "details": messages}), 400)
+
+
 # ------------------------- Auth routes -------------------------
 @app.route("/api/auth/register/student", methods=["POST"])
 def register_student():
-    data = request.get_json(force=True)
-    email = data.get("email")
-    password = data.get("password")
+    data, err = validate_json(RegisterStudentSchema)
+    if err:
+        return err
 
-    if not email or not password:
-        return jsonify({"error": "Email and password are required."}), 400
-    if User.query.filter_by(email=email).first():
+    if User.query.filter_by(email=data["email"]).first():
         return jsonify({"error": "An account with this email already exists."}), 409
 
-    user = User(email=email, role="student")
-    user.set_password(password)
+    user = User(email=data["email"], role="student")
+    user.set_password(data["password"])
     db.session.add(user)
     db.session.flush()
 
-    cgpa = data.get("cgpa")
-    passing_year = data.get("passing_year")
     student = StudentProfile(
         user_id=user.id,
-        full_name=data.get("full_name"),
+        full_name=data["full_name"],
         roll_number=data.get("roll_number"),
         branch=data.get("branch"),
-        cgpa=float(cgpa) if cgpa not in (None, "") else None,
-        passing_year=int(passing_year) if passing_year not in (None, "") else None,
+        cgpa=data.get("cgpa"),
+        passing_year=data.get("passing_year"),
         phone=data.get("phone"),
         skills=data.get("skills"),
     )
@@ -387,23 +486,21 @@ def register_student():
 
 @app.route("/api/auth/register/company", methods=["POST"])
 def register_company():
-    data = request.get_json(force=True)
-    email = data.get("email")
-    password = data.get("password")
+    data, err = validate_json(RegisterCompanySchema)
+    if err:
+        return err
 
-    if not email or not password:
-        return jsonify({"error": "Email and password are required."}), 400
-    if User.query.filter_by(email=email).first():
+    if User.query.filter_by(email=data["email"]).first():
         return jsonify({"error": "An account with this email already exists."}), 409
 
-    user = User(email=email, role="company")
-    user.set_password(password)
+    user = User(email=data["email"], role="company")
+    user.set_password(data["password"])
     db.session.add(user)
     db.session.flush()
 
     company = CompanyProfile(
         user_id=user.id,
-        company_name=data.get("company_name"),
+        company_name=data["company_name"],
         industry=data.get("industry"),
         description=data.get("description"),
         website=data.get("website"),
@@ -424,12 +521,12 @@ def register_company():
 
 @app.route("/api/auth/login", methods=["POST"])
 def login():
-    data = request.get_json(force=True)
-    email = data.get("email")
-    password = data.get("password")
-    user = User.query.filter_by(email=email).first()
+    data, err = validate_json(LoginSchema)
+    if err:
+        return err
 
-    if not user or not user.check_password(password):
+    user = User.query.filter_by(email=data["email"]).first()
+    if not user or not user.check_password(data["password"]):
         return jsonify({"error": "Incorrect email or password."}), 401
 
     token = create_token(user)
@@ -460,11 +557,12 @@ def student_dashboard():
     if applied_job_ids:
         query = query.filter(JobPost.id.notin_(applied_job_ids))
     active_jobs = query.order_by(desc(JobPost.created_at)).all()
+    job_counts = get_application_counts([j.id for j in active_jobs])
 
     return jsonify({
         "student": serialize_student(student),
         "applications": [serialize_application(a) for a in applications],
-        "active_jobs": [serialize_job(j) for j in active_jobs],
+        "active_jobs": [serialize_job(j, application_count=job_counts.get(j.id, 0)) for j in active_jobs],
         "stats": {
             "total_applications": len(applications),
             "shortlisted": sum(1 for a in applications if a.status == "Shortlisted"),
@@ -546,13 +644,14 @@ def company_dashboard():
         return jsonify({"pending": True, "company": serialize_company(company)})
 
     jobs = JobPost.query.filter_by(company_id=company.id).order_by(desc(JobPost.created_at)).all()
+    job_counts = get_application_counts([j.id for j in jobs])
     return jsonify({
         "pending": False,
         "company": serialize_company(company),
-        "jobs": [serialize_job(j, include_company=False) for j in jobs],
+        "jobs": [serialize_job(j, include_company=False, application_count=job_counts.get(j.id, 0)) for j in jobs],
         "stats": {
             "total_jobs": len(jobs),
-            "total_applications": sum(len(j.applications) for j in jobs),
+            "total_applications": sum(job_counts.values()),
         },
     })
 
@@ -564,12 +663,21 @@ def post_job():
     if company.approval_status != "approved":
         return jsonify({"error": "Your company must be approved by an admin before you can post jobs."}), 403
 
-    data = request.get_json(force=True)
-    last_date_str = data.get("last_date")
-    last_date = datetime.strptime(last_date_str, "%Y-%m-%d").date() if last_date_str else None
+    data, err = validate_json(PostJobSchema)
+    if err:
+        return err
+
+    last_date = None
+    if data.get("last_date"):
+        try:
+            last_date = datetime.strptime(data["last_date"], "%Y-%m-%d").date()
+        except ValueError:
+            # Previously an unhandled ValueError -> unhandled 500 for any
+            # malformed date string. Now a clean 400 with a real message.
+            return jsonify({"error": "last_date must be in YYYY-MM-DD format."}), 400
 
     job = JobPost(
-        company_id=company.id, title=data.get("title"), description=data.get("description"),
+        company_id=company.id, title=data["title"], description=data["description"],
         required_skills=data.get("required_skills"), location=data.get("location"),
         salary_range=data.get("salary_range"), last_date=last_date,
     )
@@ -596,12 +704,11 @@ def update_application_status(app_id):
     if application.job.company_id != company.id:
         return jsonify({"error": "Unauthorized."}), 403
 
-    data = request.get_json(force=True)
-    new_status = data.get("status")
-    remarks = data.get("remarks", "")
-
-    if new_status not in ["Shortlisted", "Rejected", "Placed"]:
-        return jsonify({"error": "Invalid status."}), 400
+    data, err = validate_json(UpdateApplicationStatusSchema)
+    if err:
+        return err
+    new_status = data["status"]
+    remarks = data.get("remarks") or ""
 
     application.status = new_status
     application.remarks = remarks
@@ -756,7 +863,8 @@ def reject_company(company_id):
 @role_required("admin")
 def admin_jobs():
     jobs = JobPost.query.order_by(desc(JobPost.created_at)).all()
-    return jsonify({"jobs": [serialize_job(j) for j in jobs]})
+    job_counts = get_application_counts([j.id for j in jobs])
+    return jsonify({"jobs": [serialize_job(j, application_count=job_counts.get(j.id, 0)) for j in jobs]})
 
 
 @app.route("/api/admin/placements")
@@ -923,7 +1031,29 @@ def init_db():
         admin = User.query.filter_by(role="admin").first()
         if not admin:
             admin = User(email="admin@campus.com", role="admin")
-            admin.set_password(os.environ.get("DEFAULT_ADMIN_PASSWORD", "admin123"))
+            configured_password = os.environ.get("DEFAULT_ADMIN_PASSWORD")
+            if configured_password:
+                admin.set_password(configured_password)
+            else:
+                # No hardcoded "admin123" fallback - that's a known, guessable
+                # password sitting in a public repo, which is a real account
+                # takeover risk. Instead, generate a strong random one-time
+                # password and log it clearly so whoever is watching the
+                # deploy logs (you) can grab it and log in once, then change
+                # it via the app (or reset via DEFAULT_ADMIN_PASSWORD next
+                # deploy) - same pattern Jenkins/many tools use for first-run
+                # admin setup.
+                generated_password = secrets.token_urlsafe(12)
+                admin.set_password(generated_password)
+                logger.warning(
+                    "=" * 60 + "\n"
+                    "No DEFAULT_ADMIN_PASSWORD set. Generated one-time admin "
+                    "password for admin@campus.com:\n\n"
+                    f"    {generated_password}\n\n"
+                    "Save this now - it will not be shown again. Set "
+                    "DEFAULT_ADMIN_PASSWORD in your environment to control "
+                    "this explicitly on future deploys.\n" + "=" * 60
+                )
             db.session.add(admin)
             db.session.commit()
             logger.info("Admin user created: admin@campus.com")
