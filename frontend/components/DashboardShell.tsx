@@ -52,6 +52,7 @@ export function DashboardShell({
                 <Link
                   key={item.href}
                   href={item.href}
+                  aria-current={active ? "page" : undefined}
                   className={`block text-sm font-medium px-3 py-2.5 rounded-lg transition-colors ${
                     active ? "bg-violet/15 text-violet" : "text-muted hover:text-ink hover:bg-white/5"
                   }`}
@@ -62,6 +63,7 @@ export function DashboardShell({
             })}
             <Link
               href="/notifications"
+              aria-current={pathname === "/notifications" ? "page" : undefined}
               className={`block text-sm font-medium px-3 py-2.5 rounded-lg transition-colors ${
                 pathname === "/notifications" ? "bg-violet/15 text-violet" : "text-muted hover:text-ink hover:bg-white/5"
               }`}
