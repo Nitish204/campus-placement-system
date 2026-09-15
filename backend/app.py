@@ -88,6 +88,12 @@ class User(db.Model):
     password_hash = db.Column(db.String(256), nullable=False)
     role = db.Column(db.String(20), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # Embedded in every JWT issued for this user. Bumping this value
+    # (e.g. on logout-everywhere, or automatically on password change)
+    # makes every previously issued token fail its next check instantly -
+    # no server-side token blocklist/Redis needed, just one extra column
+    # and one extra comparison per request.
+    token_version = db.Column(db.Integer, default=0, nullable=False)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -275,6 +281,7 @@ def serialize_placement(p: PlacementRecord):
 def create_token(user: User) -> str:
     payload = {
         "user_id": user.id, "role": user.role, "email": user.email,
+        "tv": user.token_version,
         "exp": datetime.utcnow() + timedelta(hours=JWT_EXP_HOURS),
     }
     return jwt.encode(payload, app.config["SECRET_KEY"], algorithm="HS256")
@@ -291,7 +298,15 @@ def get_current_user():
         return None
     except jwt.InvalidTokenError:
         return None
-    return User.query.get(payload.get("user_id"))
+    user = User.query.get(payload.get("user_id"))
+    if not user:
+        return None
+    # A token issued before a "logout everywhere" (or password change,
+    # which bumps this automatically below) carries the OLD token_version
+    # and gets rejected here, even if it hasn't technically expired yet.
+    if payload.get("tv") != user.token_version:
+        return None
+    return user
 
 
 def login_required(f):
@@ -543,6 +558,18 @@ def me():
     elif user.role == "company" and user.company_profile:
         d["profile"] = serialize_company(user.company_profile)
     return jsonify(d)
+
+
+@app.route("/api/auth/logout_everywhere", methods=["POST"])
+@login_required
+def logout_everywhere():
+    """Invalidates every token issued for this account, including the
+    one used to call this endpoint - by the time this returns, the caller
+    needs to log in again too. Useful if you suspect a token leaked, or
+    just want to force a clean re-login on every device."""
+    request.current_user.token_version += 1
+    db.session.commit()
+    return jsonify({"message": "Logged out on all devices. Please log in again."})
 
 
 # ------------------------- Student routes -------------------------
@@ -850,20 +877,48 @@ def admin_dashboard():
     })
 
 
+def paginate_query(query, serializer, default_per_page=20, max_per_page=100):
+    """Wraps a SQLAlchemy query with Flask-SQLAlchemy's built-in
+    .paginate() (a real library feature, not hand-rolled offset/limit
+    math) and returns a consistent envelope with page metadata. Reads
+    page/per_page from the query string, e.g. ?page=2&per_page=50."""
+    try:
+        page = max(int(request.args.get("page", 1)), 1)
+    except ValueError:
+        page = 1
+    try:
+        per_page = min(max(int(request.args.get("per_page", default_per_page)), 1), max_per_page)
+    except ValueError:
+        per_page = default_per_page
+
+    result = query.paginate(page=page, per_page=per_page, error_out=False)
+    return {
+        "items": [serializer(item) for item in result.items],
+        "page": result.page,
+        "per_page": result.per_page,
+        "total": result.total,
+        "total_pages": result.pages,
+        "has_next": result.has_next,
+        "has_prev": result.has_prev,
+    }
+
+
 @app.route("/api/admin/students")
 @role_required("admin")
 def admin_students():
-    students = StudentProfile.query.all()
-    return jsonify({"students": [serialize_student(s) for s in students]})
+    query = StudentProfile.query.order_by(StudentProfile.id)
+    result = paginate_query(query, serialize_student)
+    return jsonify({"students": result["items"], "pagination": {k: v for k, v in result.items() if k != "items"}})
 
 
 @app.route("/api/admin/companies")
 @role_required("admin")
 def admin_companies():
-    companies = CompanyProfile.query.order_by(
-        case((CompanyProfile.approval_status == "pending", 0), else_=1)
-    ).all()
-    return jsonify({"companies": [serialize_company(c) for c in companies]})
+    query = CompanyProfile.query.order_by(
+        case((CompanyProfile.approval_status == "pending", 0), else_=1), CompanyProfile.id
+    )
+    result = paginate_query(query, serialize_company)
+    return jsonify({"companies": result["items"], "pagination": {k: v for k, v in result.items() if k != "items"}})
 
 
 @app.route("/api/admin/company/<int:company_id>/approve", methods=["POST"])
@@ -889,16 +944,33 @@ def reject_company(company_id):
 @app.route("/api/admin/jobs")
 @role_required("admin")
 def admin_jobs():
-    jobs = JobPost.query.order_by(desc(JobPost.created_at)).all()
-    job_counts = get_application_counts([j.id for j in jobs])
-    return jsonify({"jobs": [serialize_job(j, application_count=job_counts.get(j.id, 0)) for j in jobs]})
+    query = JobPost.query.order_by(desc(JobPost.created_at))
+    try:
+        page = max(int(request.args.get("page", 1)), 1)
+    except ValueError:
+        page = 1
+    try:
+        per_page = min(max(int(request.args.get("per_page", 20)), 1), 100)
+    except ValueError:
+        per_page = 20
+    result = query.paginate(page=page, per_page=per_page, error_out=False)
+
+    job_counts = get_application_counts([j.id for j in result.items])
+    return jsonify({
+        "jobs": [serialize_job(j, application_count=job_counts.get(j.id, 0)) for j in result.items],
+        "pagination": {
+            "page": result.page, "per_page": result.per_page, "total": result.total,
+            "total_pages": result.pages, "has_next": result.has_next, "has_prev": result.has_prev,
+        },
+    })
 
 
 @app.route("/api/admin/placements")
 @role_required("admin")
 def admin_placements():
-    placements = PlacementRecord.query.order_by(desc(PlacementRecord.placed_date)).all()
-    return jsonify({"placements": [serialize_placement(p) for p in placements]})
+    query = PlacementRecord.query.order_by(desc(PlacementRecord.placed_date))
+    result = paginate_query(query, serialize_placement)
+    return jsonify({"placements": result["items"], "pagination": {k: v for k, v in result.items() if k != "items"}})
 
 
 @app.route("/api/admin/delete_user/<int:user_id>", methods=["POST"])
@@ -955,6 +1027,13 @@ def run_migrations():
                 conn.execute(text("ALTER TABLE company_profiles ADD COLUMN approval_status VARCHAR(20) DEFAULT 'pending'"))
                 conn.execute(text("UPDATE company_profiles SET approval_status = 'approved' WHERE approval_status IS NULL OR approval_status = 'pending'"))
             logger.info("Migrated: company_profiles.approval_status added (existing companies grandfathered as approved)")
+
+    if "users" in existing_tables:
+        cols = [c["name"] for c in inspector.get_columns("users")]
+        if "token_version" not in cols:
+            with db.engine.begin() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 0 NOT NULL"))
+            logger.info("Migrated: users.token_version added (enables JWT revocation)")
 
 
 def seed_demo_data():
