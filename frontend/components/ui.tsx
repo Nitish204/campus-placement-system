@@ -1,4 +1,4 @@
-import { ButtonHTMLAttributes, InputHTMLAttributes, TextareaHTMLAttributes } from "react";
+import { ButtonHTMLAttributes, InputHTMLAttributes, TextareaHTMLAttributes, useState } from "react";
 
 export function GlassPanel({
   children,
@@ -49,15 +49,33 @@ export function Button({
 export function Input({
   label,
   className = "",
+  type,
   ...props
 }: InputHTMLAttributes<HTMLInputElement> & { label?: string }) {
+  const [revealed, setRevealed] = useState(false);
+  const isPassword = type === "password";
   return (
     <label className="block">
       {label && <span className="block text-sm text-muted mb-1.5 font-medium">{label}</span>}
-      <input
-        className={`w-full bg-white/60 border border-ink/10 rounded-xl px-4 py-2.5 text-ink placeholder:text-muted/50 outline-none focus:border-violet/40 focus:bg-white transition-colors ${className}`}
-        {...props}
-      />
+      <div className="relative">
+        <input
+          type={isPassword && revealed ? "text" : type}
+          className={`w-full bg-white/60 border border-ink/10 rounded-xl px-4 py-2.5 ${isPassword ? "pr-14" : ""} text-ink placeholder:text-muted/50 outline-none focus:border-violet/40 focus:bg-white transition-colors ${className}`}
+          {...props}
+        />
+        {isPassword && (
+          <button
+            type="button"
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setRevealed((v) => !v)}
+            aria-label={revealed ? "Hide password" : "Show password"}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-muted hover:text-violet"
+          >
+            {revealed ? "Hide" : "Show"}
+          </button>
+        )}
+      </div>
     </label>
   );
 }
