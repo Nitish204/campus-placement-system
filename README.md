@@ -33,7 +33,7 @@
 <br/>
 
 <div align="center">
-  <em>Dark glassmorphic UI · animated robot onboarding · AI-assisted resume screening · real-time placement analytics</em>
+  <em>Bright glassmorphic UI · animated onboarding · AI-assisted resume screening · real-time placement analytics</em>
 </div>
 
 <br/>
