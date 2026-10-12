@@ -30,11 +30,11 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 import jwt
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify
 from flask_cors import CORS
+from flask_limiter import Limiter
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
-from werkzeug.utils import secure_filename
 from sqlalchemy import func, desc, case
 from pydantic import BaseModel, EmailStr, Field, ValidationError
 from typing import Optional, Literal
@@ -52,7 +52,7 @@ if not SECRET_KEY:
         "everyone out on every deploy). Set SECRET_KEY in your environment "
         "before treating this as production."
     )
-    SECRET_KEY = uuid.uuid4().hex
+    SECRET_KEY = secrets.token_urlsafe(48)
 app.config["SECRET_KEY"] = SECRET_KEY
 
 database_url = os.environ.get("DATABASE_URL")
@@ -61,23 +61,70 @@ if database_url and database_url.startswith("postgres://"):
 app.config["SQLALCHEMY_DATABASE_URI"] = database_url or "sqlite:///campus_placement.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-app.config["UPLOAD_FOLDER"] = os.path.join(BASE_DIR, "uploads")
-app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB max file
-os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+# Resumes are PDF/TXT text; 5MB is far more than a real one needs and keeps a
+# malicious upload from tying up a worker. Only the extracted text is kept
+# (see upload_resume) - the file itself is never written to disk.
+app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
 
 _allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "").strip()
-allowed_origins = [o.strip() for o in _allowed_origins_env.split(",") if o.strip()] or ["*"]
-if allowed_origins == ["*"]:
-    logger.warning(
-        "[security] ALLOWED_ORIGINS not set - CORS is wide open. Set it to "
-        "your deployed frontend URL before treating this as production."
-    )
+allowed_origins = [o.strip() for o in _allowed_origins_env.split(",") if o.strip()]
+if not allowed_origins:
+    # No wildcard. The Next.js app calls this API through its own /api
+    # rewrite, so the browser never makes a cross-origin request in
+    # production. Only local dev origins are allowed unless ALLOWED_ORIGINS
+    # says otherwise.
+    allowed_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+    logger.info("[security] ALLOWED_ORIGINS not set - CORS limited to local dev origins.")
 CORS(app, origins=allowed_origins, supports_credentials=False)
 
 db = SQLAlchemy(app)
 
-JWT_EXP_HOURS = 24 * 7  # 7 days
+JWT_EXP_HOURS = int(os.environ.get("JWT_EXP_HOURS", 24 * 7))  # default 7 days
+COOKIE_NAME = "campus_session"
+
+
+# ------------------------- Rate limiting -------------------------
+# Brute-force protection for the auth endpoints. Two independent limits:
+# per client IP, and per target account (so one account can't be hammered
+# from many IPs). Storage is in-process memory, which is right for a single
+# instance; with several instances/workers each keeps its own counts, so
+# move it to Redis (storage_uri) if you scale out.
+def client_ip():
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.remote_addr or "unknown"
+
+
+def account_key():
+    data = request.get_json(silent=True, force=True) or {}
+    email = str(data.get("email", "")).strip().lower() if isinstance(data, dict) else ""
+    return f"acct:{email}" if email else client_ip()
+
+
+limiter = Limiter(key_func=client_ip, app=app, storage_uri="memory://")
+
+
+def limits_off():
+    """Only the test suite sets this (app.config["RATELIMIT_OFF"]) so that
+    unrelated tests can register/login repeatedly from one address."""
+    return bool(app.config.get("RATELIMIT_OFF"))
+
+
+@app.errorhandler(429)
+def too_many_requests(_e):
+    return jsonify({"error": "Too many attempts. Please wait a few minutes and try again."}), 429
+
+
+@app.after_request
+def add_security_headers(resp):
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["X-Frame-Options"] = "DENY"
+    resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    resp.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+    if request.path.startswith("/api/"):
+        resp.headers["Cache-Control"] = "no-store"  # never cache account data
+    return resp
 
 
 # ------------------------- Database Models -------------------------
@@ -287,11 +334,25 @@ def create_token(user: User) -> str:
     return jwt.encode(payload, app.config["SECRET_KEY"], algorithm="HS256")
 
 
+def set_session_cookie(resp, token):
+    """The login token is also sent as an httpOnly cookie so browser
+    JavaScript (and therefore any XSS bug) can never read it. SameSite=Lax
+    keeps other sites from making the browser send it on cross-site POSTs,
+    which is what protects it from CSRF. Bearer headers still work for API
+    clients and tests."""
+    host = request.host.split(":")[0]
+    resp.set_cookie(
+        COOKIE_NAME, token, max_age=JWT_EXP_HOURS * 3600, httponly=True,
+        secure=host not in ("localhost", "127.0.0.1"), samesite="Lax", path="/",
+    )
+    return resp
+
+
 def get_current_user():
     auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
+    token = auth[7:] if auth.startswith("Bearer ") else request.cookies.get(COOKIE_NAME)
+    if not token:
         return None
-    token = auth[7:]
     try:
         payload = jwt.decode(token, app.config["SECRET_KEY"], algorithms=["HS256"])
     except jwt.ExpiredSignatureError:
@@ -346,15 +407,16 @@ def extract_text_from_resume(file):
         try:
             import PyPDF2
             pdf_reader = PyPDF2.PdfReader(file)
-            for page in pdf_reader.pages:
+            # A resume is a few pages; cap it so a crafted PDF with
+            # thousands of pages can't burn CPU.
+            for page in pdf_reader.pages[:30]:
                 text += page.extract_text() or ""
-        except ImportError:
-            text = "PDF processing requires PyPDF2."
-        except Exception as e:
-            text = f"Error reading PDF: {str(e)}"
+        except Exception:
+            logger.exception("[resume] could not read PDF")
+            raise ValueError("This PDF could not be read. Please try another file.")
     else:
-        text = "Unsupported file format. Please upload TXT or PDF."
-    return text.lower()
+        raise ValueError("Unsupported file format. Please upload TXT or PDF.")
+    return text.lower()[:100_000]
 
 
 def calculate_screening_score(resume_text, job_skills, job_description=""):
@@ -469,6 +531,8 @@ def validate_json(schema_cls):
 
 # ------------------------- Auth routes -------------------------
 @app.route("/api/auth/register/student", methods=["POST"])
+@limiter.limit("5 per minute", exempt_when=limits_off)
+@limiter.limit("30 per hour", exempt_when=limits_off)
 def register_student():
     data, err = validate_json(RegisterStudentSchema)
     if err:
@@ -496,10 +560,12 @@ def register_student():
     db.session.commit()
 
     token = create_token(user)
-    return jsonify({"access_token": token, "role": user.role}), 201
+    return set_session_cookie(jsonify({"access_token": token, "role": user.role}), token), 201
 
 
 @app.route("/api/auth/register/company", methods=["POST"])
+@limiter.limit("5 per minute", exempt_when=limits_off)
+@limiter.limit("30 per hour", exempt_when=limits_off)
 def register_company():
     data, err = validate_json(RegisterCompanySchema)
     if err:
@@ -531,10 +597,12 @@ def register_company():
     db.session.commit()
 
     token = create_token(user)
-    return jsonify({"access_token": token, "role": user.role, "pending_approval": True}), 201
+    return set_session_cookie(jsonify({"access_token": token, "role": user.role, "pending_approval": True}), token), 201
 
 
 @app.route("/api/auth/login", methods=["POST"])
+@limiter.limit("10 per minute", exempt_when=limits_off)
+@limiter.limit("15 per hour", key_func=account_key, exempt_when=limits_off)
 def login():
     data, err = validate_json(LoginSchema)
     if err:
@@ -545,7 +613,7 @@ def login():
         return jsonify({"error": "Incorrect email or password."}), 401
 
     token = create_token(user)
-    return jsonify({"access_token": token, "role": user.role})
+    return set_session_cookie(jsonify({"access_token": token, "role": user.role}), token)
 
 
 @app.route("/api/auth/me")
@@ -560,6 +628,15 @@ def me():
     return jsonify(d)
 
 
+@app.route("/api/auth/logout", methods=["POST"])
+def logout():
+    """Clears the session cookie on this browser. The token itself stays
+    valid until it expires; /api/auth/logout_everywhere revokes it."""
+    resp = jsonify({"message": "Logged out."})
+    resp.delete_cookie(COOKIE_NAME, path="/")
+    return resp
+
+
 @app.route("/api/auth/logout_everywhere", methods=["POST"])
 @login_required
 def logout_everywhere():
@@ -569,7 +646,9 @@ def logout_everywhere():
     just want to force a clean re-login on every device."""
     request.current_user.token_version += 1
     db.session.commit()
-    return jsonify({"message": "Logged out on all devices. Please log in again."})
+    resp = jsonify({"message": "Logged out on all devices. Please log in again."})
+    resp.delete_cookie(COOKIE_NAME, path="/")
+    return resp
 
 
 # ------------------------- Student routes -------------------------
@@ -638,21 +717,24 @@ def upload_resume():
     if not verify_file_signature(file_bytes, ext):
         return jsonify({"error": f"This file doesn't look like a real .{ext} file. Please check the file and try again."}), 400
 
+    # Only the extracted text is stored (that is all the app ever reads).
+    # The file itself is not saved: nothing links to it, Render's disk is
+    # wiped on every redeploy, and a public-facing upload folder is just
+    # attack surface.
     try:
-        os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
-        filename = secure_filename(f"{student.id}_{uuid.uuid4().hex}_{file.filename}")
-        filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-        file.save(filepath)
-
         file.seek(0)
         extracted_text = extract_text_from_resume(file)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    try:
         student.resume_text = extracted_text
         db.session.commit()
-
         return jsonify({"message": "Resume uploaded and processed successfully.", "has_resume": True})
-    except Exception as e:
+    except Exception:
         db.session.rollback()
-        return jsonify({"error": f"Could not process resume: {str(e)}"}), 500
+        logger.exception("[resume] could not save resume text")
+        return jsonify({"error": "Could not save your resume. Please try again."}), 500
 
 
 @app.route("/api/student/apply/<int:job_id>", methods=["POST"])
@@ -660,6 +742,9 @@ def upload_resume():
 def apply_job(job_id):
     student = StudentProfile.query.filter_by(user_id=request.current_user.id).first()
     job = JobPost.query.get_or_404(job_id)
+
+    if job.last_date and job.last_date < datetime.utcnow().date():
+        return jsonify({"error": "The application deadline for this job has passed."}), 400
 
     existing = JobApplication.query.filter_by(student_id=student.id, job_id=job_id).first()
     if existing:
@@ -1003,12 +1088,6 @@ def delete_user(user_id):
     return jsonify({"message": f"User {email} deleted successfully."})
 
 
-@app.route("/uploads/<path:filename>")
-@login_required
-def uploaded_file(filename):
-    return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
-
-
 @app.route("/health")
 def health():
     return jsonify({"status": "ok"})
@@ -1037,6 +1116,11 @@ def run_migrations():
 
 
 def seed_demo_data():
+    # Demo accounts all share publicly known passwords (they are in the
+    # source), so they must never appear in a real deployment by accident.
+    # Opt in explicitly: SEED_DEMO_DATA=true.
+    if os.environ.get("SEED_DEMO_DATA", "").lower() not in ("1", "true", "yes"):
+        return
     if StudentProfile.query.count() > 0:
         return
 
@@ -1171,4 +1255,6 @@ with app.app_context():
     init_db()
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    # Never hard-code debug=True: the Werkzeug debugger allows remote code
+    # execution if it is ever reachable. Opt in locally with FLASK_DEBUG=1.
+    app.run(debug=os.environ.get("FLASK_DEBUG") == "1")
