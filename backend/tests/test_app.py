@@ -35,6 +35,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(app_module, "seed_demo_data", lambda: None)
     app_module.app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{tmp_path}/test.db"
     app_module.app.config["TESTING"] = True
+    app_module.app.config["RATELIMIT_OFF"] = True  # security tests switch it on explicitly
 
     with app_module.app.app_context():
         app_module.db.drop_all()
@@ -251,7 +252,13 @@ def test_upload_resume_accepts_real_pdf(client):
     register_student(client)
     token = login(client, "student@test.com")
 
-    real_pdf = (BytesIO(b"%PDF-1.4\nreal pdf header for testing"), "resume.pdf")
+    from PyPDF2 import PdfWriter
+    buf = BytesIO()
+    writer = PdfWriter()
+    writer.add_blank_page(width=200, height=200)
+    writer.write(buf)
+    buf.seek(0)
+    real_pdf = (buf, "resume.pdf")
     res = client.post(
         "/api/student/upload_resume", headers=auth_headers(token),
         data={"resume": real_pdf}, content_type="multipart/form-data",
