@@ -10,28 +10,18 @@ export type CurrentUser = {
   profile?: any;
 };
 
-// Token is read synchronously from localStorage on mount - no network
-// wait - so callers can start their own data fetch immediately instead
-// of waiting for /auth/me to resolve first. The old version blocked
-// dashboard pages behind a full /auth/me round-trip before they were
-// even allowed to start fetching their own data - two sequential
-// network calls stacked back-to-back instead of running in parallel.
-// This hook now fetches /auth/me in the background for role
-// verification and the topbar email, but doesn't gate anything else on it.
+// The session is an httpOnly cookie, so there is no token to read here.
+// Pages start their own data fetches immediately (the cookie rides along
+// automatically) while this hook verifies the role and loads the topbar
+// identity in parallel. A missing or expired session makes any API call
+// return 401, which sends the user to /login.
 export function useAuth(requiredRole?: "student" | "company" | "admin") {
   const router = useRouter();
-  const [token] = useState<string | null>(() =>
-    typeof window !== "undefined" ? localStorage.getItem("campus_token") : null
-  );
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
-    if (!token) {
-      router.push("/login");
-      return;
-    }
-    api.me(token)
+    api.me()
       .then((u) => {
         if (requiredRole && u.role !== requiredRole) {
           router.push(`/dashboard/${u.role}`);
@@ -40,26 +30,23 @@ export function useAuth(requiredRole?: "student" | "company" | "admin") {
         setUser(u);
         setAuthChecked(true);
       })
-      .catch(() => {
-        localStorage.removeItem("campus_token");
-        router.push("/login");
-      });
-  }, [router, requiredRole, token]);
+      .catch(() => router.push("/login"));
+  }, [router, requiredRole]);
 
   function logout() {
-    localStorage.removeItem("campus_token");
-    router.push("/login");
+    api.logout().catch(() => {}).finally(() => router.push("/login"));
   }
 
   // "loading" kept for backward compatibility with pages that gate their
   // whole render on it - but pages should prefer using `token` directly
   // to start data fetches immediately, and only use `user`/`authChecked`
   // for the parts that actually need identity (email in the topbar, role).
-  return { token, user, loading: !authChecked, authChecked, logout };
+  return { user, loading: !authChecked, authChecked, logout };
 }
 
-export function storeAuthAndRedirect(access_token: string, role: string, router: any) {
-  localStorage.setItem("campus_token", access_token);
+// The server has just set the session cookie; all that is left is to go to
+// the right dashboard. Also drop any token an older version left behind.
+export function redirectAfterAuth(role: string, router: any) {
+  try { localStorage.removeItem("campus_token"); } catch {}
   router.push(`/dashboard/${role}`);
 }
-
