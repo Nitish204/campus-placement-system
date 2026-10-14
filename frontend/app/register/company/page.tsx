@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import { LoadingIntro } from "@/components/LoadingIntro";
 import { GlassPanel, Button, Input, Textarea } from "@/components/ui";
 import { api } from "@/lib/api";
-import { storeAuthAndRedirect } from "@/lib/auth";
+import { redirectAfterAuth } from "@/lib/auth";
 
 export default function RegisterCompanyPage() {
   const router = useRouter();
@@ -24,7 +24,7 @@ export default function RegisterCompanyPage() {
         industry: fd.get("industry"), description: fd.get("description"),
         website: fd.get("website"), location: fd.get("location"),
       });
-      storeAuthAndRedirect(res.access_token, res.role, router);
+      redirectAfterAuth(res.role, router);
     } catch (err: any) {
       setError(err.message || "Registration failed.");
     } finally {
