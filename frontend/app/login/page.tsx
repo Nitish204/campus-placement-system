@@ -6,7 +6,7 @@ import { motion, useMotionValue, useTransform, animate } from "framer-motion";
 import { Button, Input } from "@/components/ui";
 import { LoadingIntro } from "@/components/LoadingIntro";
 import { api } from "@/lib/api";
-import { storeAuthAndRedirect } from "@/lib/auth";
+import { redirectAfterAuth } from "@/lib/auth";
 
 // A number that visibly counts up on mount - the "interactive" element
 // for this panel, in place of a static stat. Built with useMotionValue
@@ -39,7 +39,7 @@ export default function LoginPage() {
     const fd = new FormData(e.currentTarget);
     try {
       const res = await api.login(String(fd.get("email")), String(fd.get("password")));
-      storeAuthAndRedirect(res.access_token, res.role, router);
+      redirectAfterAuth(res.role, router);
     } catch (err: any) {
       setError(err.message || "Couldn't log in.");
     } finally {
