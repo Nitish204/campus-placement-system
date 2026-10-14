@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import { LoadingIntro } from "@/components/LoadingIntro";
 import { GlassPanel, Button, Input, Select } from "@/components/ui";
 import { api } from "@/lib/api";
-import { storeAuthAndRedirect } from "@/lib/auth";
+import { redirectAfterAuth } from "@/lib/auth";
 
 const branches = ["Computer Science", "Information Technology", "Electronics", "Mechanical Engineering", "Civil Engineering", "Electrical Engineering"];
 
@@ -26,7 +26,7 @@ export default function RegisterStudentPage() {
         roll_number: fd.get("roll_number"), branch: fd.get("branch"), cgpa: fd.get("cgpa"),
         passing_year: fd.get("passing_year"), phone: fd.get("phone"), skills: fd.get("skills"),
       });
-      storeAuthAndRedirect(res.access_token, res.role, router);
+      redirectAfterAuth(res.role, router);
     } catch (err: any) {
       setError(err.message || "Registration failed.");
     } finally {
