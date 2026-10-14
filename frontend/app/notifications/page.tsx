@@ -8,26 +8,23 @@ import { GlassPanel, Button, Badge } from "@/components/ui";
 
 export default function NotificationsPage() {
   const router = useRouter();
-  const { token, user, logout } = useAuth();
+  const { user, logout } = useAuth();
   const [notifs, setNotifs] = useState<any[]>([]);
 
   async function load() {
-    if (!token) return;
-    const res = await api.notifications(token);
+    const res = await api.notifications();
     setNotifs(res.notifications);
   }
-  useEffect(() => { if (token) load(); }, [token]);
+  useEffect(() => { load(); }, []);
 
   async function open(n: any) {
-    if (!token) return;
-    await api.openNotification(n.id, token);
+    await api.openNotification(n.id);
     if (n.link) router.push(n.link);
     else await load();
   }
 
   async function markAllRead() {
-    if (!token) return;
-    await api.markAllRead(token);
+    await api.markAllRead();
     await load();
   }
 
